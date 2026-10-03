@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenWA.Agent.Core\OpenWA.Agent.Core.csproj" />
+    <ProjectReference Include="..\OpenWA.Agent.Infrastructure\OpenWA.Agent.Infrastructure.csproj" />
+    <ProjectReference Include="..\OpenWA.Agent.Storage\OpenWA.Agent.Storage.csproj" />
+  </ItemGroup>
+
+</Project>
