@@ -74,11 +74,27 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
 
         _logger.LogInformation("Inizializzo LLM con MCP Tools per la sessione {Session}", session);
 
-        // 1. Clona il kernel per isolare la conversazione e aggiungere l'MCP Plugin dinamico
+        // 1. Clona il kernel per isolare la conversazione e aggiungere i Plugin MCP
         var chatKernel = _kernel.Clone();
-        var mcpHttpClient = _httpClientFactory.CreateClient("McpClient");
-        var mcpPlugin = new OpenWaMcpPlugin(mcpHttpClient, session, _logger);
-        chatKernel.Plugins.AddFromObject(mcpPlugin, "OpenWA_MCP");
+        
+        foreach (var mcpServer in _options.McpServers)
+        {
+            var mcpHttpClient = _httpClientFactory.CreateClient($"McpClient_{mcpServer.Name}");
+            
+            // Attualmente simuliamo i plugin hardcoded, ma con una libreria MCP vera qui si farebbe un connect
+            // dinamico che scarica la lista dei tool JSON-RPC esposti.
+            if (mcpServer.Name == "OpenWA")
+            {
+                var openWaPlugin = new OpenWaMcpPlugin(mcpHttpClient, session, _logger);
+                chatKernel.Plugins.AddFromObject(openWaPlugin, "OpenWA_MCP");
+                _logger.LogInformation("Caricato MCP Plugin per: {Name}", mcpServer.Name);
+            }
+            else
+            {
+                // In futuro: GenericMcpPlugin.Connect(mcpHttpClient);
+                _logger.LogInformation("Trovato configurazione MCP aggiuntiva: {Name} (predisposta per il futuro)", mcpServer.Name);
+            }
+        }
 
         // 2. Prepara il prompt
         var systemPrompt = GetSystemPrompt(chatId);

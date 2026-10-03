@@ -35,7 +35,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - Agent__McpEndpoint=http://openwa-api:2785
+      - Agent__McpServers__0__Name=OpenWA
+      - Agent__McpServers__0__Endpoint=http://openwa-api:2785
       - Agent__ApiKey=${NVIDIA_API_KEY:-your_nvidia_api_key_here}
       - Agent__ModelId=meta/llama-3.2-11b-vision-instruct
     volumes:

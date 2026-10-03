@@ -31,22 +31,27 @@ public static class DependencyInjection
         services.AddSingleton(kernelBuilder.Build());
         services.AddTransient<IAgentOrchestrator, SemanticKernelOrchestrator>();
 
-        // Configura il client HTTP "MCP" generico verso OpenWA
-        services.AddHttpClient("McpClient", client => 
+        // Registra un client HTTP per ogni server MCP configurato
+        foreach (var server in options.McpServers)
         {
-            client.BaseAddress = new Uri(options.McpEndpoint);
-            
-            var apiKey = options.McpToken;
-            if (string.IsNullOrEmpty(apiKey) && File.Exists("/app/data/.api-key"))
+            services.AddHttpClient($"McpClient_{server.Name}", client => 
             {
-                try { apiKey = File.ReadAllText("/app/data/.api-key").Trim(); } catch { }
-            }
-            if (!string.IsNullOrEmpty(apiKey))
-            {
-                client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
-            }
-        }).AddTransientHttpErrorPolicy(policyBuilder =>
-                policyBuilder.WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))));
+                client.BaseAddress = new Uri(server.Endpoint);
+                
+                var apiKey = server.Token;
+                if (string.IsNullOrEmpty(apiKey) && server.Name == "OpenWA" && File.Exists("/app/data/.api-key"))
+                {
+                    try { apiKey = File.ReadAllText("/app/data/.api-key").Trim(); } catch { }
+                }
+                
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    // L'header cambia a seconda del server? Per ora usiamo X-API-Key (o Bearer)
+                    client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+                }
+            }).AddTransientHttpErrorPolicy(policyBuilder =>
+                    policyBuilder.WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))));
+        }
 
         return services;
     }
