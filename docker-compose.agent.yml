@@ -1,0 +1,45 @@
+# OpenWA + NVIDIA DeepSeek Agent - Docker Compose
+# Run with: docker compose -f docker-compose.agent.yml up -d --build
+
+services:
+  # OpenWA WhatsApp API Gateway
+  openwa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openwa-api
+    restart: unless-stopped
+    ports:
+      - "2785:2785"
+    environment:
+      - NODE_ENV=development
+      - AUTO_START_SESSIONS=true
+      - DATABASE_TYPE=sqlite
+      - ENGINE_TYPE=baileys
+      - MCP_ENABLED=true
+      - MCP_READONLY=false
+      - WEBHOOK_SSRF_PROTECT=false
+      - SSRF_ALLOWED_HOSTS=nvidia-agent,host.docker.internal
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # NVIDIA DeepSeek Agent Bridge
+  nvidia-agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: nvidia-agent
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - OPENWA_URL=http://openwa-api:2785
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-your_nvidia_api_key_here}
+      - NVIDIA_MODEL=meta/llama-3.2-11b-vision-instruct
+    volumes:
+      - ./data:/app/data:ro # Reads the auto-generated .api-key from OpenWA
+      - ./agent/rules.json:/app/rules.json # Dynamic rules configuration file
+    depends_on:
+      - openwa
