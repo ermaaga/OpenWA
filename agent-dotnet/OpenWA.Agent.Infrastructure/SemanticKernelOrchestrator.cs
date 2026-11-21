@@ -114,6 +114,7 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
 
         // 1. Clona il kernel per isolare la conversazione e aggiungere i Plugin MCP
         var chatKernel = _kernel.Clone();
+        OpenWaMcpPlugin? openWa = null;
 
         foreach (var mcpServer in _options.McpServers)
         {
@@ -124,6 +125,7 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
             if (mcpServer.Name == "OpenWA")
             {
                 var openWaPlugin = new OpenWaMcpPlugin(mcpHttpClient, session, _logger);
+                openWa = openWaPlugin;
                 chatKernel.Plugins.AddFromObject(openWaPlugin, "OpenWA_MCP");
                 _logger.LogInformation("Caricato MCP Plugin per: {Name}", mcpServer.Name);
             }
@@ -151,13 +153,29 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
         };
 
         // L'LLM farà tutto da solo: chiamerà get_chat_history e poi send_message!
-        await chatCompletionService.GetChatMessageContentAsync(
+        var result = await chatCompletionService.GetChatMessageContentAsync(
             chatHistory,
             executionSettings: settings,
             kernel: chatKernel,
             cancellationToken: cancellationToken
         );
+        var finalText = result.Content?.Trim() ?? string.Empty;
 
-        return string.Empty;
+        if (openWa is null || openWa.MessageSent)
+        {
+            _logger.LogInformation("Turno concluso per {ChatId}: risposta inviata con send_message", chatId);
+            return string.Empty;
+        }
+
+        // Il modello ha chiuso con un testo senza chiamare send_message: prima andava perso
+        // in silenzio. Lo inviamo noi, così il contatto riceve comunque la risposta.
+        if (string.IsNullOrEmpty(finalText))
+        {
+            _logger.LogWarning("Turno concluso per {ChatId} senza risposta: il modello non ha chiamato send_message né restituito testo", chatId);
+            return string.Empty;
+        }
+        _logger.LogWarning("Il modello non ha chiamato send_message per {ChatId}: invio il suo testo finale come risposta", chatId);
+        await openWa.SendMessageAsync(chatId, finalText);
+        return finalText;
     }
 }

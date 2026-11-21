@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.ComponentModel;
+using System.Text.Json;
 using Microsoft.SemanticKernel;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,14 +30,68 @@ public class OpenWaMcpPlugin
     {
         _logger.LogInformation("Tool Call (MCP): get_chat_history per {ChatId}", chatId);
         // Simulazione della chiamata RPC all'MCP Server di OpenWA
-        var url = $"/api/sessions/{_session}/messages?chatId={chatId}&limit={limit}";
+        limit = Math.Clamp(limit, 1, 20);
+        var url = $"/api/sessions/{_session}/messages?chatId={Uri.EscapeDataString(chatId)}&limit={limit}";
         var response = await _mcpHttpClient.GetAsync(url);
-        if (response.IsSuccessStatusCode)
+        if (!response.IsSuccessStatusCode)
         {
-            return await response.Content.ReadAsStringAsync();
+            return "Nessuna cronologia disponibile.";
         }
-        return "Nessuna cronologia disponibile.";
+        var raw = await response.Content.ReadAsStringAsync();
+        var compact = CompactHistory(raw);
+        _logger.LogInformation("get_chat_history: {Raw} caratteri da OpenWA, {Compact} passati al modello", raw.Length, compact.Length);
+        return compact;
     }
+
+    /// <summary>
+    /// OpenWA restituisce i messaggi completi, media inclusi in base64 dentro "metadata"
+    /// (una sola foto può pesare centinaia di KB). Al modello passiamo solo quello che
+    /// serve per capire la conversazione: ora, mittente, tipo e testo.
+    /// </summary>
+    public static string CompactHistory(string raw)
+    {
+        const int MaxBody = 1000;
+        const int MaxTotal = 8000;
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            var root = doc.RootElement;
+            var messages = root.ValueKind == JsonValueKind.Array ? root
+                : root.TryGetProperty("messages", out var m) ? m
+                : root.TryGetProperty("data", out var d) ? d
+                : default;
+            if (messages.ValueKind != JsonValueKind.Array)
+            {
+                return "Nessuna cronologia disponibile.";
+            }
+
+            var items = new List<object>();
+            foreach (var msg in messages.EnumerateArray())
+            {
+                string? Str(string name) =>
+                    msg.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+                var type = Str("type") ?? "text";
+                var body = Str("body") ?? "";
+                if (body.Length > MaxBody) body = body[..MaxBody] + "…";
+                var text = type == "text" ? body : $"[{type}]" + (body.Length > 0 ? " " + body : "");
+                var from = Str("direction") == "outgoing" ? "me" : (Str("author") ?? Str("from") ?? "contact");
+                var time = msg.TryGetProperty("timestamp", out var ts) ? ts.ToString() : Str("createdAt");
+                items.Add(new { time, from, text });
+            }
+
+            var json = JsonSerializer.Serialize(items);
+            // Se anche così è troppo lungo, teniamo solo la parte finale.
+            return json.Length <= MaxTotal ? json : "…" + json[^MaxTotal..];
+        }
+        catch (JsonException)
+        {
+            return raw.Length <= MaxTotal ? raw : "Nessuna cronologia disponibile.";
+        }
+    }
+
+    /// <summary>True se in questo turno send_message è già stato chiamato.</summary>
+    public bool MessageSent => _alreadySent;
 
     [KernelFunction("send_message")]
     [Description("Invia un messaggio di testo su WhatsApp a un destinatario specifico.")]
