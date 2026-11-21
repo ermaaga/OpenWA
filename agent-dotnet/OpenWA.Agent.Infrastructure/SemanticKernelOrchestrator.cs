@@ -26,11 +26,24 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
     private string GetSystemPrompt(string chatId)
     {
         var defaultPrompt = DefaultPrompt;
-        if (File.Exists(_options.RulesFile))
+        
+        // Risolvi il path del rules.json cercando in diverse posizioni
+        var candidatePaths = new[]
+        {
+            _options.RulesFile,
+            Path.Combine(AppContext.BaseDirectory, "rules.json"),
+            "rules.json",
+            "agent-dotnet/rules.json",
+            "/app/rules.json"
+        };
+
+        var rulesPath = candidatePaths.FirstOrDefault(p => !string.IsNullOrEmpty(p) && File.Exists(p));
+
+        if (!string.IsNullOrEmpty(rulesPath))
         {
             try 
             {
-                var content = File.ReadAllText(_options.RulesFile);
+                var content = File.ReadAllText(rulesPath);
                 var rules = JsonSerializer.Deserialize<JsonElement>(content);
                 
                 if (rules.TryGetProperty("default_system_prompt", out var defaultProp))
@@ -40,18 +53,43 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
                 
                 if (rules.TryGetProperty("chat_rules", out var chatRules))
                 {
-                    if (chatRules.TryGetProperty(chatId, out var exactMatch))
+                    var cleanChatId = ExtractDigits(chatId);
+
+                    foreach (var prop in chatRules.EnumerateObject())
                     {
-                        return exactMatch.GetString() ?? defaultPrompt;
+                        var ruleKey = prop.Name;
+                        var cleanRuleKey = ExtractDigits(ruleKey);
+
+                        // Match esatto, per cifre (es. 391234567890) o per sottostringa
+                        if (ruleKey.Equals(chatId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(cleanChatId) && cleanRuleKey.Equals(cleanChatId, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrEmpty(cleanRuleKey) && chatId.Contains(cleanRuleKey)))
+                        {
+                            _logger.LogInformation("Matched system prompt rule key '{RuleKey}' for chatId '{ChatId}' from '{Path}'", ruleKey, chatId, rulesPath);
+                            return prop.Value.GetString() ?? defaultPrompt;
+                        }
                     }
                 }
+                _logger.LogInformation("No specific chat rule matched for '{ChatId}'. Using default prompt from '{Path}'", chatId, rulesPath);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to parse rules file");
+                _logger.LogWarning(ex, "Failed to parse rules file from {Path}", rulesPath);
             }
         }
+        else
+        {
+            _logger.LogWarning("Rules file not found in any candidate path ({Paths}). Using hardcoded fallback.", string.Join(", ", candidatePaths));
+        }
+
         return defaultPrompt;
+    }
+
+    private static string ExtractDigits(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        var noSuffix = input.Split('@')[0];
+        return new string(noSuffix.Where(char.IsDigit).ToArray());
     }
 
     public async Task<string> ProcessMessageAsync(IncomingWebhookDto webhook, CancellationToken cancellationToken = default)
@@ -76,7 +114,7 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
 
         // 1. Clona il kernel per isolare la conversazione e aggiungere i Plugin MCP
         var chatKernel = _kernel.Clone();
-        
+
         foreach (var mcpServer in _options.McpServers)
         {
             var mcpHttpClient = _httpClientFactory.CreateClient($"McpClient_{mcpServer.Name}");
@@ -100,8 +138,8 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
         var systemPrompt = GetSystemPrompt(chatId);
         var chatHistory = new ChatHistory(systemPrompt);
         
-        // Istruisce l'LLM sul nuovo evento
-        var userPrompt = $"Ho appena ricevuto questo messaggio da {chatId}: '{textContent}'. Usa il tool 'get_chat_history' per leggere i messaggi precedenti e poi rispondi usando il tool 'send_message'.";
+        // Istruisce l'LLM sul nuovo evento in modo neutrale per evitare interferenze di lingua
+        var userPrompt = $"New message received from {chatId}: '{textContent}'.\nTask: If needed, use 'get_chat_history' (chatId='{chatId}') for context, then call 'send_message' EXACTLY ONCE to reply to '{chatId}'. Follow your system prompt persona and language rules strictly.";
         chatHistory.AddUserMessage(userPrompt);
 
         // 3. Esegue l'LLM attivando il Tool Calling automatico (MCP)

@@ -26,7 +26,8 @@ app.MapPost("/webhook", (IncomingWebhookDto webhook, IAgentOrchestrator orchestr
     }
     
     var payload = webhook.Payload ?? webhook.Data;
-    if (payload?.FromMe == true || eventName.Contains("ack"))
+    var isFromMe = payload?.FromMe == true || payload?.IsFromMe == true || payload?.Key?.FromMe == true;
+    if (isFromMe || eventName.Contains("ack"))
     {
          return Results.Ok(new { status = "ignored" });
     }

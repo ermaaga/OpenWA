@@ -12,6 +12,7 @@ public class OpenWaMcpPlugin
     private readonly HttpClient _mcpHttpClient; // In a real scenario, this wraps the MCP JSON-RPC connection
     private readonly ILogger _logger;
     private readonly string _session;
+    private bool _alreadySent = false;
 
     public OpenWaMcpPlugin(HttpClient httpClient, string session, ILogger logger)
     {
@@ -43,6 +44,13 @@ public class OpenWaMcpPlugin
         [Description("L'ID della chat di WhatsApp a cui inviare il messaggio")] string chatId,
         [Description("Il testo del messaggio da inviare")] string text)
     {
+        if (_alreadySent)
+        {
+            _logger.LogWarning("Blocked duplicate send_message call in the same turn for {ChatId}", chatId);
+            return "Message already sent. Do not send more messages.";
+        }
+        _alreadySent = true;
+
         _logger.LogInformation("Tool Call (MCP): send_message a {ChatId} con testo: {Text}", chatId, text);
         // Simulazione della chiamata RPC all'MCP Server di OpenWA
         var payload = new { chatId, text };

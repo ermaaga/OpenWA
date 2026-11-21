@@ -20,10 +20,22 @@ public class IncomingWebhookDto
     public WebhookPayload? Data { get; set; }
 }
 
+public class WebhookKey
+{
+    [JsonPropertyName("fromMe")]
+    public bool? FromMe { get; set; }
+}
+
 public class WebhookPayload
 {
     [JsonPropertyName("fromMe")]
     public bool? FromMe { get; set; }
+
+    [JsonPropertyName("isFromMe")]
+    public bool? IsFromMe { get; set; }
+
+    [JsonPropertyName("key")]
+    public WebhookKey? Key { get; set; }
 
     [JsonPropertyName("from")]
     public string? From { get; set; }
