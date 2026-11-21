@@ -1,2 +1,7 @@
 bin/
 obj/
+triage.json
+triage-state.json
+triage-state.json.*
+github.key
+nvidia.key

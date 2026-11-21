@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.SemanticKernel;
 using OpenWA.Agent.Core;
+using OpenWA.Agent.Infrastructure.Triage;
 using Polly;
 
 namespace OpenWA.Agent.Infrastructure;
@@ -30,6 +31,21 @@ public static class DependencyInjection
         
         services.AddSingleton(kernelBuilder.Build());
         services.AddTransient<IAgentOrchestrator, SemanticKernelOrchestrator>();
+        services.AddSingleton<SystemPromptProvider>();
+
+        // Triage workflow (summaries to the owner, GitHub issues)
+        services.AddSingleton(new TriageStore(options.TriageStateFile));
+        services.AddSingleton<TriageSettingsProvider>();
+        services.AddSingleton<WhatsAppSender>();
+        services.AddSingleton<GitHubIssues>();
+        services.AddSingleton<TriageService>();
+        services.AddHttpClient("GitHub", client =>
+        {
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("openwa-agent");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
 
         // Registra un client HTTP per ogni server MCP configurato
         foreach (var server in options.McpServers)

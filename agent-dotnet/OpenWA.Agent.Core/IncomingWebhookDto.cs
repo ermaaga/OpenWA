@@ -54,4 +54,28 @@ public class WebhookPayload
     
     [JsonPropertyName("caption")]
     public string? Caption { get; set; }
+
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("isGroup")]
+    public bool? IsGroup { get; set; }
+
+    [JsonPropertyName("timestamp")]
+    public long? Timestamp { get; set; }
+
+    [JsonPropertyName("quotedMessage")]
+    public WebhookQuotedMessage? QuotedMessage { get; set; }
+}
+
+public class WebhookQuotedMessage
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("body")]
+    public string? Body { get; set; }
 }

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenWA.Agent.Core;
@@ -13,83 +12,16 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
     private readonly AgentOptions _options;
     private readonly ILogger<SemanticKernelOrchestrator> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    private const string DefaultPrompt = "Sei un assistente virtuale su WhatsApp. Rispondi in italiano in modo chiaro e sintetico. Usa gli strumenti (tools) a tua disposizione per inviare messaggi o leggere lo storico.";
+    private readonly SystemPromptProvider _prompts;
 
-    public SemanticKernelOrchestrator(Kernel kernel, IOptions<AgentOptions> options, IHttpClientFactory httpClientFactory, ILogger<SemanticKernelOrchestrator> logger)
+    public SemanticKernelOrchestrator(Kernel kernel, IOptions<AgentOptions> options, IHttpClientFactory httpClientFactory,
+        SystemPromptProvider prompts, ILogger<SemanticKernelOrchestrator> logger)
     {
         _kernel = kernel;
         _options = options.Value;
         _httpClientFactory = httpClientFactory;
+        _prompts = prompts;
         _logger = logger;
-    }
-
-    private string GetSystemPrompt(string chatId)
-    {
-        var defaultPrompt = DefaultPrompt;
-        
-        // Risolvi il path del rules.json cercando in diverse posizioni
-        var candidatePaths = new[]
-        {
-            _options.RulesFile,
-            Path.Combine(AppContext.BaseDirectory, "rules.json"),
-            "rules.json",
-            "agent-dotnet/rules.json",
-            "/app/rules.json"
-        };
-
-        var rulesPath = candidatePaths.FirstOrDefault(p => !string.IsNullOrEmpty(p) && File.Exists(p));
-
-        if (!string.IsNullOrEmpty(rulesPath))
-        {
-            try 
-            {
-                var content = File.ReadAllText(rulesPath);
-                var rules = JsonSerializer.Deserialize<JsonElement>(content);
-                
-                if (rules.TryGetProperty("default_system_prompt", out var defaultProp))
-                {
-                    defaultPrompt = defaultProp.GetString() ?? defaultPrompt;
-                }
-                
-                if (rules.TryGetProperty("chat_rules", out var chatRules))
-                {
-                    var cleanChatId = ExtractDigits(chatId);
-
-                    foreach (var prop in chatRules.EnumerateObject())
-                    {
-                        var ruleKey = prop.Name;
-                        var cleanRuleKey = ExtractDigits(ruleKey);
-
-                        // Match esatto, per cifre (es. 391234567890) o per sottostringa
-                        if (ruleKey.Equals(chatId, StringComparison.OrdinalIgnoreCase) ||
-                            (!string.IsNullOrEmpty(cleanChatId) && cleanRuleKey.Equals(cleanChatId, StringComparison.OrdinalIgnoreCase)) ||
-                            (!string.IsNullOrEmpty(cleanRuleKey) && chatId.Contains(cleanRuleKey)))
-                        {
-                            _logger.LogInformation("Matched system prompt rule key '{RuleKey}' for chatId '{ChatId}' from '{Path}'", ruleKey, chatId, rulesPath);
-                            return prop.Value.GetString() ?? defaultPrompt;
-                        }
-                    }
-                }
-                _logger.LogInformation("No specific chat rule matched for '{ChatId}'. Using default prompt from '{Path}'", chatId, rulesPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse rules file from {Path}", rulesPath);
-            }
-        }
-        else
-        {
-            _logger.LogWarning("Rules file not found in any candidate path ({Paths}). Using hardcoded fallback.", string.Join(", ", candidatePaths));
-        }
-
-        return defaultPrompt;
-    }
-
-    private static string ExtractDigits(string input)
-    {
-        if (string.IsNullOrEmpty(input)) return string.Empty;
-        var noSuffix = input.Split('@')[0];
-        return new string(noSuffix.Where(char.IsDigit).ToArray());
     }
 
     public async Task<string> ProcessMessageAsync(IncomingWebhookDto webhook, CancellationToken cancellationToken = default)
@@ -137,7 +69,7 @@ public class SemanticKernelOrchestrator : IAgentOrchestrator
         }
 
         // 2. Prepara il prompt
-        var systemPrompt = GetSystemPrompt(chatId);
+        var systemPrompt = _prompts.GetSystemPrompt(chatId);
         var chatHistory = new ChatHistory(systemPrompt);
         
         // Istruisce l'LLM sul nuovo evento in modo neutrale per evitare interferenze di lingua
